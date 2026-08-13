@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Evolv — Face Profile Demo</title>
+<style>
+  body { font-family: -apple-system, sans-serif; max-width: 640px; margin: 40px auto; padding: 0 20px; background: #fafafa; color: #222; }
+  h1 { font-size: 24px; }
+  .card { background: white; border-radius: 12px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+  label { display: block; margin: 10px 0 4px; font-weight: 600; font-size: 14px; }
+  input[type="checkbox"] { margin-right: 6px; }
+  select { padding: 8px; border-radius: 6px; border: 1px solid #ccc; font-size: 14px; width: 100%; max-width: 260px; }
+  .concern-row { font-weight: normal; margin: 4px 0; }
+  button { background: #222; color: white; border: none; padding: 12px 20px; border-radius: 8px; cursor: pointer; font-size: 15px; margin-top: 14px; }
+  button:disabled { opacity: 0.5; }
+  #results { display: none; }
+  .flag { display: inline-block; background: #eee; border-radius: 6px; padding: 3px 8px; margin: 2px; font-size: 13px; }
+  .swatch { display: inline-block; width: 16px; height: 16px; border-radius: 4px; vertical-align: middle; margin-right: 6px; }
+  #note { font-size: 13px; color: #666; margin-top: 8px; }
+  #error { color: #b00020; margin-top: 10px; }
+</style>
+</head>
+<body>
+
+<h1>Evolv — Face Profile Demo</h1>
+
+<div class="card">
+  <label>I identify as</label>
+  <select id="genderSelect">
+    <option value="prefer_not_to_say">Prefer not to say</option>
+    <option value="male">Male</option>
+    <option value="female">Female</option>
+    <option value="non_binary">Non-binary</option>
+  </select>
+
+  <label>Selfie</label>
+  <input type="file" id="fileInput" accept="image/*" />
+
+  <label>Any concerns? (optional)</label>
+  <div class="concern-row"><input type="checkbox" value="breakout_like_spots" /> Breakouts</div>
+  <div class="concern-row"><input type="checkbox" value="dark_spot_like_areas" /> Dark spots</div>
+  <div class="concern-row"><input type="checkbox" value="sun_exposure_unevenness" /> Tanning</div>
+
+  <button id="analyzeBtn">Analyze</button>
+  <div id="error"></div>
+</div>
+
+<div id="results">
+  <div class="card">
+    <h3>Face Profile</h3>
+    <p><strong>Shape:</strong> <span id="faceShape"></span></p>
+    <p><strong>Undertone:</strong> <span id="undertone"></span></p>
+    <p><strong>Skin tone depth:</strong> <span id="skinDepth"></span></p>
+    <p><strong>Visible signals:</strong> <span id="skinFlags"></span></p>
+    <p id="note"></p>
+  </div>
+
+  <div class="card">
+    <h3>Haircut Suggestions</h3>
+    <div id="haircuts"></div>
+  </div>
+
+  <div class="card">
+    <h3>Skincare Routine</h3>
+    <div id="skincare"></div>
+  </div>
+
+  <div class="card">
+    <h3>Color Palette</h3>
+    <div id="palette"></div>
+  </div>
+</div>
+
+<script>
+const btn = document.getElementById("analyzeBtn");
+const fileInput = document.getElementById("fileInput");
+const genderSelect = document.getElementById("genderSelect");
+const errorDiv = document.getElementById("error");
+const resultsDiv = document.getElementById("results");
+
+btn.addEventListener("click", async () => {
+  errorDiv.textContent = "";
+  const file = fileInput.files[0];
+  if (!file) {
+    errorDiv.textContent = "Please choose a selfie first.";
+    return;
+  }
+
+  const concerns = Array.from(document.querySelectorAll(".concern-row input:checked"))
+    .map(cb => cb.value)
+    .join(",");
+
+  const formData = new FormData();
+  formData.append("front_image", file);
+  formData.append("skin_concerns", concerns);
+  formData.append("gender", genderSelect.value);
+
+  btn.disabled = true;
+  btn.textContent = "Analyzing...";
+
+  try {
+    const res = await fetch("/analyze", { method: "POST", body: formData });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `Request failed (${res.status})`);
+    }
+    const data = await res.json();
+    renderResults(data);
+  } catch (e) {
+    errorDiv.textContent = e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Analyze";
+  }
+});
+
+function renderResults(data) {
+  const profile = data.face_profile;
+
+  document.getElementById("faceShape").textContent = profile.face_shape;
+  document.getElementById("undertone").textContent = profile.undertone;
+  document.getElementById("skinDepth").textContent = profile.skin_tone_depth;
+  document.getElementById("skinFlags").innerHTML =
+    (profile.skin_flags || []).map(f => `<span class="flag">${f}</span>`).join("") || "None detected";
+  document.getElementById("note").textContent = profile.confidence_note || "";
+
+  document.getElementById("haircuts").innerHTML = data.haircuts.map(h =>
+    `<p><strong>${h.name}</strong><br><span style="color:#666">${h.reason}</span></p>`
+  ).join("");
+
+  document.getElementById("skincare").innerHTML = data.skincare_routine.map(s =>
+    `<p><strong>${s.step}</strong><br>
+     <strong>Budget:</strong> ${s.budget_product}<br>
+     <strong>Premium:</strong> ${s.premium_product}<br>
+     <span style="color:#666">${s.reason}</span></p>`
+  ).join("");
+
+  document.getElementById("palette").innerHTML = data.color_palette.map(c =>
+    `<p><span class="swatch" style="background:${c.hex}"></span><strong>${c.color_name}</strong> (${c.hex})<br>
+     <span style="color:#666">${c.reason}</span></p>`
+  ).join("");
+
+  resultsDiv.style.display = "block";
+}
+</script>
+
+</body>
+</html>
