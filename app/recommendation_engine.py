@@ -53,7 +53,7 @@ from app.knowledge_base import (
 
 def _profile_base_key(profile: FaceProfile, salt: str) -> str:
     flags_key = ",".join(sorted(f.value for f in profile.skin_flags))
-    return f"{profile.face_shape.value}-{profile.undertone.value}-{profile.skin_tone_depth}-{flags_key}-{salt}"
+    return f"{profile.face_shape.value}-{profile.undertone.value}-{profile.skin_tone_depth}-{profile.gender.value}-{flags_key}-{salt}"
 
 
 def _pick_option(options: list, profile: FaceProfile, salt: str):
@@ -119,8 +119,15 @@ def _pick_sunscreen(profile: FaceProfile) -> dict:
 
 
 def _pick_haircuts(profile: FaceProfile, count: int = 3) -> list:
-    haircut_pool = HAIRCUT_BY_FACE_SHAPE_WOMEN if profile.gender.value == "female" else HAIRCUT_BY_FACE_SHAPE_MEN
-    all_haircuts = haircut_pool.get(profile.face_shape.value, [])
+    if profile.gender.value == "female":
+        all_haircuts = HAIRCUT_BY_FACE_SHAPE_WOMEN.get(profile.face_shape.value, [])
+    elif profile.gender.value == "male":
+        all_haircuts = HAIRCUT_BY_FACE_SHAPE_MEN.get(profile.face_shape.value, [])
+    else:
+        all_haircuts = (
+            HAIRCUT_BY_FACE_SHAPE_MEN.get(profile.face_shape.value, [])
+            + HAIRCUT_BY_FACE_SHAPE_WOMEN.get(profile.face_shape.value, [])
+        )
     return _pick_option_multi(all_haircuts, profile, salt="haircuts", count=count)
 
 

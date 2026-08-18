@@ -168,6 +168,17 @@
       accent-color: #264b3d;
     }
 
+    .preference-select {
+      width: 100%;
+      min-height: 48px;
+      padding: 10px 12px;
+      border: 1px solid #e6dfd5;
+      border-radius: 12px;
+      background: #ffffff;
+      color: #4f4c48;
+      font: inherit;
+    }
+
     button {
       width: 100%;
       margin-top: 26px;
@@ -418,6 +429,16 @@
             <input id="frontImage" name="front_image" type="file" accept="image/*" required />
           </label>
 
+          <label class="section-label" for="gender">
+            Haircut preference
+          </label>
+          <select class="preference-select" id="gender" name="gender">
+            <option value="prefer_not_to_say">Choose a style category (optional)</option>
+            <option value="female">Women’s haircut ideas</option>
+            <option value="male">Men’s haircut ideas</option>
+            <option value="non_binary">Gender-neutral haircut ideas</option>
+          </select>
+
           <span class="section-label">Any concerns you want us to consider?</span>
 
           <div class="concern-grid">
@@ -529,10 +550,12 @@
 
       const selectedConcerns = [...document.querySelectorAll(".concern-option input:checked")]
         .map((input) => input.value);
+      const gender = document.getElementById("gender").value;
 
       const formData = new FormData();
       formData.append("front_image", image);
       formData.append("skin_concerns", selectedConcerns.join(","));
+      formData.append("gender", gender);
 
       try {
         const response = await fetch("/analyze", {
