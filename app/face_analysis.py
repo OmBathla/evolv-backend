@@ -28,13 +28,39 @@ CHEEK_SAMPLE_LEFT = 50
 CHEEK_SAMPLE_RIGHT = 280
 
 
-def photo_quality_note(image_bgr: np.ndarray) -> str:
-    """Return a simple quality note for the uploaded selfie."""
+def _image_quality_metrics(image_bgr: np.ndarray) -> Tuple[int, int, float, float]:
+    """Return image dimensions, brightness, and a blur-resistant sharpness measure."""
     height, width = image_bgr.shape[:2]
     gray_image = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
-
     brightness = float(gray_image.mean())
     sharpness = float(cv2.Laplacian(gray_image, cv2.CV_64F).var())
+    return height, width, brightness, sharpness
+
+
+def photo_quality_note(image_bgr: np.ndarray, coords: np.ndarray) -> str:
+    """Reject unusable selfies and transparently label lower-confidence ones."""
+    height, width, brightness, sharpness = _image_quality_metrics(image_bgr)
+    face_width = euclidean_distance(coords[LEFT_CHEEK], coords[RIGHT_CHEEK])
+    face_coverage = face_width / width
+
+    blocking_issues = []
+    if min(height, width) < 320:
+        blocking_issues.append("the image is too small")
+    if brightness < 40:
+        blocking_issues.append("the image is much too dark")
+    if brightness > 235:
+        blocking_issues.append("the image is much too bright")
+    if sharpness < 18:
+        blocking_issues.append("the image is too blurry")
+    if face_coverage < 0.18:
+        blocking_issues.append("the face is too far from the camera")
+
+    if blocking_issues:
+        raise ValueError(
+            "This selfie cannot be analysed reliably because "
+            + ", ".join(blocking_issues)
+            + ". Retake it in even daylight with your full face filling more of the frame."
+        )
 
     issues = []
 
@@ -48,7 +74,10 @@ def photo_quality_note(image_bgr: np.ndarray) -> str:
         issues.append("the image is too bright")
 
     if sharpness < 55:
-        issues.append("the image appears blurry")
+        issues.append("the image is slightly blurry")
+
+    if face_coverage < 0.27:
+        issues.append("the face is a little far from the camera")
 
     if issues:
         return (
@@ -146,6 +175,30 @@ def sample_region_color(
     return np.mean(samples, axis=0)
 
 
+def build_cheek_skin_mask(image_bgr: np.ndarray, coords: np.ndarray) -> np.ndarray:
+    """
+    Build a landmark-bounded mask for both cheek areas.
+
+    This avoids skin-colour thresholds, which can be unreliable across skin
+    tones and lighting. MediaPipe landmarks instead keep measurements away
+    from hair, clothing, and background.
+    """
+    height, width = image_bgr.shape[:2]
+    face_outline = cv2.convexHull(coords.astype(np.int32))
+    face_mask = np.zeros((height, width), dtype=np.uint8)
+    cv2.fillConvexPoly(face_mask, face_outline, 255)
+
+    cheek_mask = np.zeros((height, width), dtype=np.uint8)
+    face_width = euclidean_distance(coords[LEFT_CHEEK], coords[RIGHT_CHEEK])
+    radius = max(12, int(face_width * 0.095))
+
+    for index in (CHEEK_SAMPLE_LEFT, CHEEK_SAMPLE_RIGHT):
+        center = tuple(coords[index].astype(int))
+        cv2.ellipse(cheek_mask, center, (radius, int(radius * 0.82)), 0, 0, 360, 255, -1)
+
+    return cv2.bitwise_and(face_mask, cheek_mask)
+
+
 def classify_skin_tone_and_undertone(
     image_bgr: np.ndarray,
     coords: np.ndarray,
@@ -193,40 +246,32 @@ def detect_visible_skin_signals(
     coords: np.ndarray,
 ) -> List[SkinFlag]:
     """
-    Detect basic visible signals from a cheek region.
+    Detect basic visible signals from landmark-bounded cheek regions.
 
     These are unvalidated prototype heuristics. They can be affected by
     lighting, camera processing, makeup, and image quality.
     """
     flags = []
-    height, width = image_bgr.shape[:2]
+    cheek_mask = build_cheek_skin_mask(image_bgr, coords)
+    skin_pixels = image_bgr[cheek_mask > 0]
 
-    x, y = int(coords[CHEEK_SAMPLE_LEFT][0]), int(coords[CHEEK_SAMPLE_LEFT][1])
-    patch_size = 24
-
-    x_start = max(0, x - patch_size)
-    x_end = min(width, x + patch_size)
-    y_start = max(0, y - patch_size)
-    y_end = min(height, y + patch_size)
-
-    cheek_patch = image_bgr[y_start:y_end, x_start:x_end]
-
-    if cheek_patch.size == 0:
+    if len(skin_pixels) < 250:
         return flags
 
-    gray_patch = cv2.cvtColor(cheek_patch, cv2.COLOR_BGR2GRAY)
-    texture_variance = float(cv2.Laplacian(gray_patch, cv2.CV_64F).var())
+    gray_image = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
+    texture_map = cv2.Laplacian(gray_image, cv2.CV_64F)
+    texture_variance = float(texture_map[cheek_mask > 0].var())
 
     if texture_variance > 150:
         flags.append(SkinFlag.TEXTURE)
 
-    blue_mean, green_mean, red_mean = cheek_patch.reshape(-1, 3).mean(axis=0)
+    blue_mean, green_mean, red_mean = skin_pixels.mean(axis=0)
 
     if red_mean - green_mean > 55:
         flags.append(SkinFlag.REDNESS)
 
-    lab_patch = cv2.cvtColor(cheek_patch, cv2.COLOR_BGR2LAB)
-    lightness_variation = float(lab_patch[:, :, 0].std())
+    lab_image = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2LAB)
+    lightness_variation = float(lab_image[:, :, 0][cheek_mask > 0].std())
 
     if lightness_variation > 20:
         flags.append(SkinFlag.UNEVEN_TONE)
@@ -236,8 +281,8 @@ def detect_visible_skin_signals(
 
 def analyze_face(image_bgr: np.ndarray) -> FaceProfile:
     """Main entry point: image in, structured prototype profile out."""
-    quality_note = photo_quality_note(image_bgr)
     coords = get_landmarks(image_bgr)
+    quality_note = photo_quality_note(image_bgr, coords)
 
     face_shape = classify_face_shape(coords)
     skin_depth, undertone, warm_score, luminance = classify_skin_tone_and_undertone(image_bgr, coords)
