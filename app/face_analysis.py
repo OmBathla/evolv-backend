@@ -231,9 +231,9 @@ def classify_skin_tone_and_undertone(
 
     warm_score = red - blue
 
-    if warm_score > 30:
+        if warm_score > 65:
         undertone = Undertone.WARM
-    elif warm_score < -10:
+    elif warm_score < 20:
         undertone = Undertone.COOL
     else:
         undertone = Undertone.NEUTRAL
