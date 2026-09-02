@@ -132,15 +132,15 @@ def classify_face_shape(coords: np.ndarray) -> FaceShape:
     length_to_width = face_length / cheekbone_width
     jaw_to_cheek = jaw_width / cheekbone_width
 
-    if length_to_width > 1.45:
+    if length_to_width > 1.35:
         return FaceShape.OBLONG
-    if jaw_to_cheek > 0.90 and length_to_width < 1.25:
+    if jaw_to_cheek > 0.87 and length_to_width < 1.20:
         return FaceShape.SQUARE
-    if jaw_to_cheek < 0.65:
+    if jaw_to_cheek < 0.68:
         return FaceShape.HEART
-    if length_to_width < 1.15 and jaw_to_cheek > 0.79:
+    if length_to_width < 1.12 and jaw_to_cheek > 0.80:
         return FaceShape.ROUND
-    if jaw_to_cheek < 0.72:
+    if jaw_to_cheek < 0.76:
         return FaceShape.DIAMOND
 
     return FaceShape.OVAL
@@ -218,22 +218,22 @@ def classify_skin_tone_and_undertone(
     blue, green, red = avg_bgr
     luminance = 0.299 * red + 0.587 * green + 0.114 * blue
 
-    if luminance > 185:
+    if luminance > 175:
         depth = "light"
-    elif luminance > 155:
+    elif luminance > 150:
         depth = "light-medium"
-    elif luminance > 135:
+    elif luminance > 128:
         depth = "medium"
-    elif luminance > 110:
+    elif luminance > 105:
         depth = "medium-deep"
     else:
         depth = "deep"
 
     warm_score = red - blue
 
-    if warm_score > 15:
+    if warm_score > 30:
         undertone = Undertone.WARM
-    elif warm_score < -5:
+    elif warm_score < -10:
         undertone = Undertone.COOL
     else:
         undertone = Undertone.NEUTRAL

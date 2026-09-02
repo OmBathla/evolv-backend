@@ -21,7 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.face_analysis import analyze_face, get_debug_metrics
 from app.recommendation_engine import generate_recommendations
-from app.schemas import RecommendationResponse, SkinFlag, Gender
+from app.schemas import RecommendationResponse, SkinFlag, Gender, FaceShape, Undertone
 
 app = FastAPI(title="Evolv API", version="0.3.0")
 
@@ -85,14 +85,31 @@ def parse_gender(raw_gender: str) -> Gender:
         return Gender.PREFER_NOT_TO_SAY
 
 
+def parse_profile_override(raw_value: str, enum_type, field_name: str):
+    """Parse an optional user correction for a profile field."""
+    if not raw_value.strip():
+        return None
+
+    try:
+        return enum_type(raw_value.strip().lower())
+    except ValueError:
+        allowed = ", ".join(option.value for option in enum_type)
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown {field_name}: '{raw_value}'. Use one of: {allowed}",
+        )
+
+
 @app.post("/analyze", response_model=RecommendationResponse)
 async def analyze(
     front_image: UploadFile = File(...),
     skin_concerns: str = Form(""),
     gender: str = Form("prefer_not_to_say"),
+    face_shape_override: str = Form(""),
+    undertone_override: str = Form(""),
 ):
     """
-    Takes a selfie plus optional self-reported concerns and gender.
+    Takes a selfie plus optional self-reported concerns, gender, and profile corrections.
 
     The photo detects only basic visible signals. The optional concerns field
     improves personalization and does not attempt to diagnose skin conditions.
@@ -114,6 +131,27 @@ async def analyze(
         profile = analyze_face(image_bgr)
 
         profile.gender = parse_gender(gender)
+
+        corrected_face_shape = parse_profile_override(
+            face_shape_override, FaceShape, "face shape"
+        )
+        corrected_undertone = parse_profile_override(
+            undertone_override, Undertone, "undertone"
+        )
+
+        if corrected_face_shape:
+            profile.face_shape = corrected_face_shape
+
+        if corrected_undertone:
+            profile.undertone = corrected_undertone
+            # The colour recommender uses this score as well as the rounded label.
+            # Preserve a user's correction instead of letting camera white balance
+            # immediately override it.
+            profile.warm_score = {
+                Undertone.WARM: 20.0,
+                Undertone.NEUTRAL: 0.0,
+                Undertone.COOL: -10.0,
+            }[corrected_undertone]
 
         user_reported_flags = parse_skin_concerns(skin_concerns)
 
